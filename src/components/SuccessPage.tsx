@@ -146,7 +146,17 @@ const SuccessPage = () => {
       });
 
       if (!response.ok) {
-        throw new Error(`Upload failed with status ${response.status}`);
+        let serverMessage: string | undefined;
+        try {
+          const data = (await response.json()) as { message?: string };
+          serverMessage = data?.message;
+        } catch (parseErr) {
+          console.warn("Unable to parse error response", parseErr);
+        }
+
+        throw new Error(
+          serverMessage ?? `Upload failed with status ${response.status}`,
+        );
       }
 
       const payload: { url?: string } = await response.json();
@@ -159,9 +169,13 @@ const SuccessPage = () => {
         ? payload.url
         : `${origin}${payload.url}`;
       setShareUrl(absoluteUrl);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Failed to create share link", err);
-      setShareError("Gagal menyiapkan QR code. Silakan coba lagi.");
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : "Gagal menyiapkan QR code. Silakan coba lagi.";
+      setShareError(message);
     } finally {
       isUploadingShareRef.current = false;
       setGeneratingShareLink(false);
