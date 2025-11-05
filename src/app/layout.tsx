@@ -29,7 +29,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${inter.className} antialiased bg-black h-screen overflow-hidden`}
+        className={`${inter.className} antialiased bg-black`}
       >
         <div className="relative z-0 h-full w-full">
           <div className="fixed bottom-0 left-0 right-0 h-96 bg-gradient-to-t from-purple-600/30 via-purple-500/20 to-transparent blur-3xl pointer-events-none"></div>

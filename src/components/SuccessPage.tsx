@@ -1,8 +1,9 @@
-'use client'
+"use client";
 
 import { Button } from "@/components/ui/button";
+import QRCode from "react-qr-code";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const CANVAS_WIDTH = 500;
 const CANVAS_HEIGHT = 1500;
@@ -19,6 +20,11 @@ const SuccessPage = () => {
   const [isCanvasReady, setCanvasReady] = useState(false);
   const [isDownloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resultDataUrl, setResultDataUrl] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [isGeneratingShareLink, setGeneratingShareLink] = useState(false);
+  const isUploadingShareRef = useRef(false);
 
   useEffect(() => {
     const stored = sessionStorage.getItem("capturedPhotos");
@@ -58,6 +64,9 @@ const SuccessPage = () => {
 
       setCanvasReady(false);
       setError(null);
+      setShareUrl(null);
+      setShareError(null);
+      setResultDataUrl(null);
 
       try {
         const [template, ...photoImages] = await Promise.all([
@@ -77,6 +86,8 @@ const SuccessPage = () => {
         });
 
         ctx.drawImage(template, 0, 0, canvas.width, canvas.height);
+        const composedDataUrl = canvas.toDataURL("image/png");
+        setResultDataUrl(composedDataUrl);
         setCanvasReady(true);
       } catch (err) {
         console.error("Failed to render composite image", err);
@@ -90,14 +101,18 @@ const SuccessPage = () => {
   }, [router]);
 
   const downloadImage = () => {
-    const canvas = canvasRef.current;
-    if (!canvas || !isCanvasReady) return;
+    if (!isCanvasReady) return;
 
     setDownloading(true);
     try {
-      const dataUrl = canvas.toDataURL("image/png");
+      const downloadTarget =
+        shareUrl ??
+        resultDataUrl ??
+        canvasRef.current?.toDataURL("image/png") ??
+        null;
+      if (!downloadTarget) return;
       const link = document.createElement("a");
-      link.href = dataUrl;
+      link.href = downloadTarget;
       link.download = "photobooth.png";
       document.body.appendChild(link);
       link.click();
@@ -111,6 +126,53 @@ const SuccessPage = () => {
     sessionStorage.removeItem("capturedPhotos");
     router.replace("/");
   };
+
+  const createShareLink = useCallback(async () => {
+    if (!resultDataUrl || isUploadingShareRef.current) {
+      return;
+    }
+
+    isUploadingShareRef.current = true;
+    setGeneratingShareLink(true);
+    setShareError(null);
+
+    try {
+      const response = await fetch("/api/render", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ imageData: resultDataUrl }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      const payload: { url?: string } = await response.json();
+      if (!payload?.url) {
+        throw new Error("Invalid response payload");
+      }
+
+      const origin = window.location.origin;
+      const absoluteUrl = payload.url.startsWith("http")
+        ? payload.url
+        : `${origin}${payload.url}`;
+      setShareUrl(absoluteUrl);
+    } catch (err) {
+      console.error("Failed to create share link", err);
+      setShareError("Gagal menyiapkan QR code. Silakan coba lagi.");
+    } finally {
+      isUploadingShareRef.current = false;
+      setGeneratingShareLink(false);
+    }
+  }, [resultDataUrl]);
+
+  useEffect(() => {
+    if (!shareUrl && resultDataUrl) {
+      void createShareLink();
+    }
+  }, [createShareLink, resultDataUrl, shareUrl]);
 
   return (
     <main className="flex h-full w-full items-center justify-center px-6 py-6">
@@ -141,6 +203,51 @@ const SuccessPage = () => {
             >
               Retake
             </Button>
+          </div>
+
+          <div className="w-full max-w-xs rounded-2xl border border-gray-700/60 bg-black/40 px-6 py-6">
+            <p className="text-sm font-semibold uppercase tracking-wide text-gray-300 text-center">
+              Scan untuk unduh
+            </p>
+            <div className="mt-4 flex flex-col items-center gap-4">
+              {shareUrl ? (
+                <>
+                  <QRCode
+                    value={shareUrl}
+                    bgColor="transparent"
+                    fgColor="#ffffff"
+                    style={{ width: "180px", height: "auto" }}
+                  />
+                  <p className="text-xs w-64 text-gray-400 text-center break-words">
+                    {shareUrl}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-400 text-center">
+                  {isGeneratingShareLink
+                    ? "Menyiapkan QR code..."
+                    : "QR code belum tersedia."}
+                </p>
+              )}
+
+              {shareError && (
+                <>
+                  <p className="text-xs text-red-400 text-center">{shareError}</p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setShareError(null);
+                      setShareUrl(null);
+                      void createShareLink();
+                    }}
+                    disabled={isGeneratingShareLink || !resultDataUrl}
+                  >
+                    Coba lagi
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
 
           {error && (
